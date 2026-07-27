@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bitrix_automation
+      POSTGRES_USER: bitrix_app
+      POSTGRES_PASSWORD: change_me
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bitrix_app -d bitrix_automation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    image: sinedis-bitrix24-automation:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bitrix_app:change_me@postgres:5432/bitrix_automation
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010"]
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    image: sinedis-bitrix24-automation:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bitrix_app:change_me@postgres:5432/bitrix_automation
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
