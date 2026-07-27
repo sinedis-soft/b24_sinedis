@@ -1,0 +1,21 @@
+[Unit]
+Description=SINEDIS Bitrix24 API
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=sinedis-bitrix
+Group=sinedis-bitrix
+WorkingDirectory=/opt/bitrix24-automation
+EnvironmentFile=/opt/bitrix24-automation/.env
+ExecStart=/opt/bitrix24-automation/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
