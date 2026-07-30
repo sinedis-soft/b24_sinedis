@@ -15,9 +15,7 @@ def test_main_synchronizes_and_disposes_on_the_same_event_loop(monkeypatch):
         loops.append(asyncio.get_running_loop())
 
     monkeypatch.setattr(register_extensions, "synchronize", synchronize)
-    monkeypatch.setattr(
-        register_extensions, "dispose_database_engine", dispose_database_engine
-    )
+    monkeypatch.setattr(register_extensions, "dispose_database_engine", dispose_database_engine)
 
     register_extensions.main()
 

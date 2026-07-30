@@ -9,8 +9,14 @@ from app.bitrix.client import BitrixClient
 from app.bitrix.exceptions import BitrixConfigurationError
 from app.config import Settings, get_settings
 from app.robots.registry import RobotRegistry, activity_registry, robot_registry
+from app.robots.rest_request import REST_REQUEST_ACTIVITY_CODE
+from app.robots.wait_field import WAIT_FIELD_ACTIVITY_CODE
 
 UNINSTALL_EVENT = "ONAPPUNINSTALL"
+DUPLICATE_ACTIVITY_CODES = {
+    REST_REQUEST_ACTIVITY_CODE,
+    WAIT_FIELD_ACTIVITY_CODE,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,21 +105,13 @@ class BitrixRegistrationService:
         return {UNINSTALL_EVENT: "bound"}
 
     async def ensure_activities_registered(self, client: BitrixClient) -> Mapping[str, str]:
-        """Idempotently add or update classic workflow activities."""
+        """Delete only known duplicate classic activities when they are present."""
         listed = await client.call("bizproc.activity.list", {})
         existing_codes = _robot_codes(listed.result)
         statuses: dict[str, str] = {}
-        for definition in self._activities.all():
-            handler = self.handler_url(definition.handler_path)
-            if definition.code in existing_codes:
-                await client.call(
-                    "bizproc.activity.update",
-                    {"CODE": definition.code, "FIELDS": definition.fields(handler)},
-                )
-                statuses[definition.code] = "updated"
-            else:
-                await client.call("bizproc.activity.add", definition.add_payload(handler))
-                statuses[definition.code] = "added"
+        for code in sorted(DUPLICATE_ACTIVITY_CODES & existing_codes):
+            await client.call("bizproc.activity.delete", {"CODE": code})
+            statuses[code] = "deleted"
         return statuses
 
     async def ensure_all(self, client: BitrixClient) -> RegistrationResult:

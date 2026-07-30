@@ -74,5 +74,4 @@ def _definition(code: str) -> RobotDefinition:
     )
 
 
-WAIT_FIELD_ACTIVITY = _definition(WAIT_FIELD_ACTIVITY_CODE)
 WAIT_FIELD_ROBOT = _definition(WAIT_FIELD_ROBOT_CODE)

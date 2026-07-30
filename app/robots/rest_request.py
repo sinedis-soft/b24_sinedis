@@ -61,5 +61,4 @@ def _definition(code: str) -> RobotDefinition:
     )
 
 
-REST_REQUEST_ACTIVITY = _definition(REST_REQUEST_ACTIVITY_CODE)
 REST_REQUEST_ROBOT = _definition(REST_REQUEST_ROBOT_CODE)
