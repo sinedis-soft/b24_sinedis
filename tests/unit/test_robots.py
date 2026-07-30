@@ -6,8 +6,15 @@ from app.bitrix.client import BitrixResponse
 from app.bitrix.exceptions import BitrixConfigurationError
 from app.bitrix.registration import BitrixRegistrationService
 from app.config import Settings
-from app.robots.payload import RobotPayloadError, normalize_robot_payload
+from app.robots.payload import (
+    RobotPayloadError,
+    normalize_rest_request_payload,
+    normalize_robot_payload,
+    normalize_wait_field_payload,
+)
+from app.robots.rest_request import REST_REQUEST_ACTIVITY, REST_REQUEST_ROBOT
 from app.robots.short_pause import SHORT_PAUSE_CODE, SHORT_PAUSE_ROBOT
+from app.robots.wait_field import WAIT_FIELD_ACTIVITY, WAIT_FIELD_ROBOT
 
 
 class FakeClient:
@@ -47,6 +54,68 @@ def test_short_pause_definition_is_subscription_robot():
         "actual_delay_seconds",
     }
     assert not ({"DOCUMENT_TYPE", "FILTER", "AUTH_USER_ID"} & fields.keys())
+
+
+def _subscription_source(properties):
+    return {
+        "auth": {"member_id": "member", "application_token": "application-secret"},
+        "event_token": "event-secret",
+        "properties": properties,
+    }
+
+
+def test_new_extension_definitions_have_distinct_subscription_codes():
+    definitions = (
+        REST_REQUEST_ACTIVITY,
+        REST_REQUEST_ROBOT,
+        WAIT_FIELD_ACTIVITY,
+        WAIT_FIELD_ROBOT,
+    )
+    assert len({item.code for item in definitions}) == 4
+    assert all(
+        item.fields("https://app.test/callback")["USE_SUBSCRIPTION"] == "Y" for item in definitions
+    )
+
+
+def test_rest_request_payload_validates_json_method_auth_and_jsonpath():
+    value = normalize_rest_request_payload(
+        _subscription_source(
+            {
+                "rest_method": "lists.element.get",
+                "request_params_json": '{"FILTER":{"ID":1}}',
+                "jsonpath": "$[*].ID",
+                "error_recipients": ["user_7", 8],
+            }
+        )
+    )
+    assert value.properties["request_params"] == {"FILTER": {"ID": 1}}
+    assert value.error_recipients == (7, 8)
+    invalid = (
+        {"rest_method": "../method", "request_params_json": "{}", "jsonpath": "$"},
+        {"rest_method": "method", "request_params_json": "[]", "jsonpath": "$"},
+        {"rest_method": "method", "request_params_json": '{"auth":"x"}', "jsonpath": "$"},
+        {"rest_method": "method", "request_params_json": "{", "jsonpath": "$"},
+        {"rest_method": "method", "request_params_json": "{}", "jsonpath": "$["},
+    )
+    for properties in invalid:
+        with pytest.raises(RobotPayloadError):
+            normalize_rest_request_payload(_subscription_source(properties))
+
+
+def test_wait_field_payload_normalizes_positive_integers():
+    value = normalize_wait_field_payload(
+        _subscription_source(
+            {
+                "entity_type_id": "2",
+                "entity_id": 10,
+                "field_name": "UF_CRM_VALUE",
+                "poll_interval_seconds": "30",
+                "timeout_seconds": 300,
+            }
+        )
+    )
+    assert value.properties["entity_type_id"] == 2
+    assert value.properties["poll_interval_seconds"] == 30
 
 
 async def test_registration_adds_robot_and_binds_event():

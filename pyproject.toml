@@ -14,6 +14,7 @@ dependencies = [
     "cryptography",
     "fastapi",
     "httpx",
+    "jsonpath-ng",
     "pydantic-settings",
     "python-multipart",
     "sqlalchemy[asyncio]",

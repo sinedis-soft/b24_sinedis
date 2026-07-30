@@ -44,6 +44,7 @@ class LifecycleResponse(BaseModel):
     member_id: str
     status: str
     robots: Mapping[str, str] = Field(default_factory=dict)
+    activities: Mapping[str, str] = Field(default_factory=dict)
     events: Mapping[str, str] = Field(default_factory=dict)
 
 
@@ -112,6 +113,7 @@ class ApplicationLifecycleService:
             member_id=auth.member_id,
             status="active",
             robots=registration.robots,
+            activities=registration.activities,
             events=registration.events,
         )
 
