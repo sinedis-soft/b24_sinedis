@@ -4,7 +4,11 @@ import pytest
 
 from app.bitrix.client import BitrixResponse
 from app.bitrix.exceptions import BitrixConfigurationError
-from app.bitrix.registration import BitrixRegistrationService, _robot_codes
+from app.bitrix.registration import (
+    DUPLICATE_ACTIVITY_CODES,
+    BitrixRegistrationService,
+    _robot_codes,
+)
 from app.config import Settings
 from app.robots.payload import (
     RobotPayloadError,
@@ -12,24 +16,33 @@ from app.robots.payload import (
     normalize_robot_payload,
     normalize_wait_field_payload,
 )
-from app.robots.rest_request import REST_REQUEST_ACTIVITY, REST_REQUEST_ROBOT
+from app.robots.registry import activity_registry, robot_registry
+from app.robots.rest_request import REST_REQUEST_ACTIVITY_CODE, REST_REQUEST_ROBOT
 from app.robots.short_pause import SHORT_PAUSE_CODE, SHORT_PAUSE_ROBOT
-from app.robots.wait_field import WAIT_FIELD_ACTIVITY, WAIT_FIELD_ROBOT
+from app.robots.wait_field import WAIT_FIELD_ACTIVITY_CODE, WAIT_FIELD_ROBOT
 
 
 class FakeClient:
-    def __init__(self, robots=None, events=None):
-        self.robots, self.events, self.calls = robots or [], events or [], []
+    def __init__(self, robots=None, events=None, activities=None):
+        self.robots = robots or []
+        self.events = events or []
+        self.activities = activities or []
+        self.calls = []
 
     async def call(self, method, params=None):
         self.calls.append((method, params))
-        result = (
-            self.robots
-            if method == "bizproc.robot.list"
-            else self.events
-            if method == "event.get"
-            else True
-        )
+        if method == "bizproc.robot.list":
+            result = self.robots
+        elif method == "bizproc.activity.list":
+            result = self.activities
+        elif method == "bizproc.activity.delete":
+            code = params["CODE"]
+            self.activities = [item for item in self.activities if item.get("CODE") != code]
+            result = True
+        elif method == "event.get":
+            result = self.events
+        else:
+            result = True
         return BitrixResponse(result=result)
 
 
@@ -64,17 +77,50 @@ def _subscription_source(properties):
     }
 
 
-def test_new_extension_definitions_have_distinct_subscription_codes():
-    definitions = (
-        REST_REQUEST_ACTIVITY,
-        REST_REQUEST_ROBOT,
-        WAIT_FIELD_ACTIVITY,
-        WAIT_FIELD_ROBOT,
-    )
-    assert len({item.code for item in definitions}) == 4
+def test_registries_contain_only_the_three_crm_robots():
+    definitions = robot_registry.all()
+    assert activity_registry.all() == ()
+    assert definitions == (SHORT_PAUSE_ROBOT, REST_REQUEST_ROBOT, WAIT_FIELD_ROBOT)
     assert all(
         item.fields("https://app.test/callback")["USE_SUBSCRIPTION"] == "Y" for item in definitions
     )
+
+
+async def test_registration_deletes_only_known_duplicate_activities():
+    unknown_code = "another.application.activity"
+    client = FakeClient(
+        activities=[
+            {"CODE": REST_REQUEST_ACTIVITY_CODE},
+            {"CODE": WAIT_FIELD_ACTIVITY_CODE},
+            {"CODE": unknown_code},
+        ]
+    )
+
+    result = await BitrixRegistrationService(settings=settings()).ensure_activities_registered(
+        client
+    )
+    repeated = await BitrixRegistrationService(settings=settings()).ensure_activities_registered(
+        client
+    )
+
+    assert result == {code: "deleted" for code in sorted(DUPLICATE_ACTIVITY_CODES)}
+    assert repeated == {}
+    assert [
+        params["CODE"] for method, params in client.calls if method.endswith(".delete")
+    ] == sorted(DUPLICATE_ACTIVITY_CODES)
+    assert client.activities == [{"CODE": unknown_code}]
+
+
+async def test_activity_cleanup_is_idempotent_and_does_not_delete_short_pause():
+    client = FakeClient(activities=[{"CODE": SHORT_PAUSE_CODE}])
+    service = BitrixRegistrationService(settings=settings())
+
+    first = await service.ensure_activities_registered(client)
+    second = await service.ensure_activities_registered(client)
+
+    assert first == second == {}
+    assert [method for method, _ in client.calls].count("bizproc.activity.list") == 2
+    assert not any(method == "bizproc.activity.delete" for method, _ in client.calls)
 
 
 def test_rest_request_payload_validates_json_method_auth_and_jsonpath():
