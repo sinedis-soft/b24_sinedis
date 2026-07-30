@@ -4,7 +4,7 @@ import pytest
 
 from app.bitrix.client import BitrixResponse
 from app.bitrix.exceptions import BitrixConfigurationError
-from app.bitrix.registration import BitrixRegistrationService
+from app.bitrix.registration import BitrixRegistrationService, _robot_codes
 from app.config import Settings
 from app.robots.payload import (
     RobotPayloadError,
@@ -128,6 +128,21 @@ async def test_registration_adds_robot_and_binds_event():
         "event.bind",
         {"event": "ONAPPUNINSTALL", "handler": "https://app.test/api/bitrix/uninstall"},
     )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ([SHORT_PAUSE_CODE, "another.robot"], {SHORT_PAUSE_CODE, "another.robot"}),
+        (
+            {"activities": [{"CODE": SHORT_PAUSE_CODE}, {"code": "another.robot"}]},
+            {SHORT_PAUSE_CODE, "another.robot"},
+        ),
+        ({"result": {"robots": [SHORT_PAUSE_CODE]}}, {SHORT_PAUSE_CODE}),
+    ],
+)
+def test_robot_codes_supports_bitrix_response_shapes(payload, expected):
+    assert _robot_codes(payload) == expected
 
 
 async def test_registration_updates_and_does_not_rebind():

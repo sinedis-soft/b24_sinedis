@@ -49,11 +49,15 @@ async def synchronize() -> None:
                 print(f"  {code}: {status}")
 
 
-def main() -> None:
+async def run() -> None:
     try:
-        asyncio.run(synchronize())
+        await synchronize()
     finally:
-        asyncio.run(dispose_database_engine())
+        await dispose_database_engine()
+
+
+def main() -> None:
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
