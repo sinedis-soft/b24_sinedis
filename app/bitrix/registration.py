@@ -136,12 +136,27 @@ def _items(value: Any) -> list[Mapping[str, Any]]:
 
 
 def _robot_codes(value: Any) -> set[str]:
-    result: set[str] = set()
-    for item in _items(value):
-        code = item.get("CODE", item.get("code"))
-        if isinstance(code, str):
-            result.add(code)
-    return result
+    if isinstance(value, list):
+        result: set[str] = set()
+
+        for item in value:
+            if isinstance(item, str):
+                result.add(item)
+            elif isinstance(item, Mapping):
+                code = item.get("CODE", item.get("code"))
+                if isinstance(code, str):
+                    result.add(code)
+
+        return result
+
+    if isinstance(value, Mapping):
+        candidates = value.get(
+            "result",
+            value.get("activities", value.get("robots", value)),
+        )
+        return _robot_codes(candidates)
+
+    return set()
 
 
 def _has_event_handler(value: Any, *, event: str, handler: str) -> bool:
