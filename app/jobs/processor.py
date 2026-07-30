@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import random
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from jsonpath_ng import parse as parse_jsonpath
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -29,7 +31,9 @@ from app.config import Settings, get_settings
 from app.jobs.repository import AutomationJobRepository
 from app.models.job import AutomationJob
 from app.models.portal import BitrixPortal, PortalStatus
+from app.robots.rest_request import REST_REQUEST_ROBOT_CODE
 from app.robots.short_pause import SHORT_PAUSE_CODE
+from app.robots.wait_field import WAIT_FIELD_ROBOT_CODE
 from app.security.encryption import EncryptionError, EncryptionService
 
 Clock = Callable[[], datetime]
@@ -97,6 +101,12 @@ class AutomationJobProcessor:
         if loaded is None:
             return
         job, portal = loaded
+        if job.robot_code == REST_REQUEST_ROBOT_CODE:
+            await self._process_rest_request(job, portal)
+            return
+        if job.robot_code == WAIT_FIELD_ROBOT_CODE:
+            await self._process_wait_field(job, portal)
+            return
         previous_error = job.last_error
         try:
             event_token, scheduled_at, requested_delay = self._validated_data(job, portal)
@@ -155,6 +165,232 @@ class AutomationJobProcessor:
                     completed_at=proposed_resume,
                     return_values=return_values,
                 )
+
+    async def _process_rest_request(self, job: AutomationJob, portal: BitrixPortal | None) -> None:
+        try:
+            event_token, payload = self._subscription_data(job, portal)
+        except (JobDataError, EncryptionError):
+            await self._failed(job, "invalid_persisted_job")
+            return
+        return_values = job.return_values if payload.get("request_completed") else None
+        if not isinstance(return_values, dict):
+            try:
+                response = await self._portal_oauth.call_portal(
+                    job.portal_id, payload["rest_method"], payload["request_params"]
+                )
+                matches = [
+                    match.value
+                    for match in parse_jsonpath(payload["jsonpath"]).find(response.result)
+                ]
+                selected = None if not matches else matches[0] if len(matches) == 1 else matches
+                result_json = json.dumps(
+                    selected, ensure_ascii=False, separators=(",", ":"), default=str
+                )
+                if selected is None:
+                    result_text = ""
+                elif isinstance(selected, str):
+                    result_text = selected
+                elif isinstance(selected, (int, float, bool)):
+                    result_text = str(selected)
+                else:
+                    result_text = result_json
+                return_values = {
+                    "status": "completed",
+                    "job_id": str(job.id),
+                    "result_text": result_text,
+                    "result_json": result_json,
+                    "matches_count": len(matches),
+                    "error_code": "",
+                    "error_message": "",
+                }
+                payload["request_completed"] = True
+                async with self._session_factory() as session:
+                    await AutomationJobRepository(session).save_processing_result(
+                        job.id, payload=payload, return_values=return_values
+                    )
+            except BitrixRateLimitError as exc:
+                await self._retry(job, "rest_request_rate_limited", exc)
+                return
+            except BitrixOAuthTemporaryError as exc:
+                await self._retry(job, "oauth_temporarily_unavailable", exc)
+                return
+            except BitrixTransportError:
+                return_values = self._error_values(
+                    job,
+                    "rest_request_outcome_unknown",
+                    "Ответ портала не получен; результат выполнения REST-метода неизвестен.",
+                )
+            except (
+                BitrixPermissionError,
+                BitrixPermanentError,
+                BitrixInvalidResponseError,
+                BitrixAuthenticationError,
+                BitrixConfigurationError,
+                BitrixOAuthConfigurationError,
+                BitrixOAuthRefreshRejectedError,
+            ):
+                return_values = self._error_values(
+                    job, "rest_request_failed", "REST-запрос Bitrix24 завершился ошибкой."
+                )
+            if not payload.get("request_completed"):
+                payload["request_completed"] = True
+                async with self._session_factory() as session:
+                    await AutomationJobRepository(session).save_processing_result(
+                        job.id, payload=payload, return_values=return_values
+                    )
+                await self._notify(job, payload, return_values["error_message"])
+        await self._deliver_subscription(job, event_token, return_values)
+
+    async def _process_wait_field(self, job: AutomationJob, portal: BitrixPortal | None) -> None:
+        try:
+            event_token, payload = self._subscription_data(job, portal)
+            created = datetime.fromisoformat(payload["created_at"]).astimezone(UTC)
+            checks = int(payload.get("checks_count", 0)) + 1
+            response = await self._portal_oauth.call_portal(
+                job.portal_id,
+                "crm.item.get",
+                {
+                    "entityTypeId": payload["entity_type_id"],
+                    "id": payload["entity_id"],
+                    "useOriginalUfNames": True,
+                },
+            )
+            if not isinstance(response.result, Mapping) or not isinstance(
+                response.result.get("item"), Mapping
+            ):
+                raise BitrixInvalidResponseError(method="crm.item.get", http_status=200)
+            value = response.result["item"].get(payload["field_name"])
+            normalized = value.strip() if isinstance(value, str) else value
+            now = self._clock()
+            payload["checks_count"] = checks
+            if normalized in (None, "", [], {}):
+                if now < created + timedelta(seconds=payload["timeout_seconds"]):
+                    async with self._session_factory() as session:
+                        await AutomationJobRepository(session).schedule_poll(
+                            job.id,
+                            run_at=now + timedelta(seconds=payload["poll_interval_seconds"]),
+                            payload=payload,
+                        )
+                    return
+                values = {
+                    "status": "timeout",
+                    "job_id": str(job.id),
+                    "field_value": "",
+                    "checks_count": checks,
+                    "completed_at": "",
+                    "error_code": "field_wait_timeout",
+                    "error_message": "Поле не было заполнено за установленное время.",
+                }
+                await self._notify(job, payload, values["error_message"])
+            else:
+                serialized = (
+                    normalized
+                    if isinstance(normalized, str)
+                    else json.dumps(
+                        normalized, ensure_ascii=False, separators=(",", ":"), default=str
+                    )
+                )
+                values = {
+                    "status": "completed",
+                    "job_id": str(job.id),
+                    "field_value": serialized,
+                    "checks_count": checks,
+                    "completed_at": now.isoformat(),
+                    "error_code": "",
+                    "error_message": "",
+                }
+        except (JobDataError, EncryptionError, KeyError, TypeError, ValueError):
+            await self._failed(job, "invalid_persisted_job")
+            return
+        except (BitrixRateLimitError, BitrixTemporaryError, BitrixOAuthTemporaryError) as exc:
+            await self._retry(job, "field_check_temporary_error", exc)
+            return
+        except (
+            BitrixPermissionError,
+            BitrixPermanentError,
+            BitrixInvalidResponseError,
+            BitrixAuthenticationError,
+            BitrixConfigurationError,
+            BitrixOAuthConfigurationError,
+            BitrixOAuthRefreshRejectedError,
+            BitrixTransportError,
+        ):
+            values = self._error_values(
+                job,
+                "field_check_failed",
+                "Не удалось проверить поле CRM.",  # noqa: RUF001
+            )
+            await self._notify(job, payload, values["error_message"])
+        await self._deliver_subscription(job, event_token, values)
+
+    def _subscription_data(
+        self, job: AutomationJob, portal: BitrixPortal | None
+    ) -> tuple[str, dict[str, Any]]:
+        if portal is None or portal.status != PortalStatus.ACTIVE.value:
+            raise JobDataError("Unsupported portal")
+        if not isinstance(job.payload, dict) or not job.event_token_encrypted:
+            raise JobDataError("Invalid persisted job")
+        return self._encryption.decrypt(job.event_token_encrypted), dict(job.payload)
+
+    async def _deliver_subscription(
+        self, job: AutomationJob, event_token: str, return_values: dict[str, Any]
+    ) -> None:
+        try:
+            response = await self._portal_oauth.call_portal(
+                job.portal_id,
+                "bizproc.event.send",
+                {
+                    "EVENT_TOKEN": event_token,
+                    "RETURN_VALUES": return_values,
+                    "LOG_MESSAGE": f"Задание {job.id} завершено.",
+                },
+            )
+            if response.result is not True:
+                raise JobDataError("Subscription was not confirmed")
+        except (
+            BitrixRateLimitError,
+            BitrixTemporaryError,
+            BitrixOAuthTemporaryError,
+            BitrixInvalidResponseError,
+            BitrixTransportError,
+        ) as exc:
+            await self._retry(job, "event_delivery_temporary_error", exc)
+            return
+        except Exception:
+            await self._failed(job, "event_delivery_failed")
+            return
+        async with self._session_factory() as session:
+            await AutomationJobRepository(session).mark_completed(
+                job.id, completed_at=self._clock(), return_values=return_values
+            )
+
+    async def _notify(self, job: AutomationJob, payload: dict[str, Any], message: str) -> None:
+        for user_id in payload.get("error_recipients", []):
+            try:
+                await self._portal_oauth.call_portal(
+                    job.portal_id,
+                    "im.notify.system.add",
+                    {
+                        "USER_ID": user_id,
+                        "MESSAGE": message,
+                        "MESSAGE_OUT": message,
+                    },
+                )
+            except Exception:
+                # Notification is best effort and never masks the workflow result.
+                continue
+
+    @staticmethod
+    def _error_values(job: AutomationJob, code: str, message: str) -> dict[str, Any]:
+        return {
+            "status": "error",
+            "job_id": str(job.id),
+            "result_text": "",
+            "result_json": "null",
+            "matches_count": 0,
+            "error_code": code,
+            "error_message": message,
+        }
 
     async def _load(self, job_id: UUID) -> tuple[AutomationJob, BitrixPortal | None] | None:
         async with self._session_factory() as session:

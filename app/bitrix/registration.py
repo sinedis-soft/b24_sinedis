@@ -1,14 +1,14 @@
 """Idempotent registration of robots and the application uninstall event."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from app.bitrix.client import BitrixClient
 from app.bitrix.exceptions import BitrixConfigurationError
 from app.config import Settings, get_settings
-from app.robots.registry import RobotRegistry, robot_registry
+from app.robots.registry import RobotRegistry, activity_registry, robot_registry
 
 UNINSTALL_EVENT = "ONAPPUNINSTALL"
 
@@ -19,6 +19,7 @@ class RegistrationResult:
 
     robots: Mapping[str, str]
     events: Mapping[str, str]
+    activities: Mapping[str, str] = field(default_factory=dict)
 
 
 def normalize_app_base_url(value: str, *, environment: str) -> str:
@@ -57,12 +58,14 @@ class BitrixRegistrationService:
         *,
         settings: Settings | None = None,
         registry: RobotRegistry = robot_registry,
+        activities: RobotRegistry = activity_registry,
     ) -> None:
         self._settings = settings or get_settings()
         self._base_url = normalize_app_base_url(
             self._settings.app_base_url, environment=self._settings.app_env
         )
         self._registry = registry
+        self._activities = activities
 
     def handler_url(self, path: str) -> str:
         """Build a handler from validated APP_BASE_URL and a local fixed path."""
@@ -95,10 +98,29 @@ class BitrixRegistrationService:
         await client.call("event.bind", {"event": UNINSTALL_EVENT, "handler": handler})
         return {UNINSTALL_EVENT: "bound"}
 
+    async def ensure_activities_registered(self, client: BitrixClient) -> Mapping[str, str]:
+        """Idempotently add or update classic workflow activities."""
+        listed = await client.call("bizproc.activity.list", {})
+        existing_codes = _robot_codes(listed.result)
+        statuses: dict[str, str] = {}
+        for definition in self._activities.all():
+            handler = self.handler_url(definition.handler_path)
+            if definition.code in existing_codes:
+                await client.call(
+                    "bizproc.activity.update",
+                    {"CODE": definition.code, "FIELDS": definition.fields(handler)},
+                )
+                statuses[definition.code] = "updated"
+            else:
+                await client.call("bizproc.activity.add", definition.add_payload(handler))
+                statuses[definition.code] = "added"
+        return statuses
+
     async def ensure_all(self, client: BitrixClient) -> RegistrationResult:
         robots = await self.ensure_robots_registered(client)
+        activities = await self.ensure_activities_registered(client)
         events = await self.ensure_uninstall_event_registered(client)
-        return RegistrationResult(robots=robots, events=events)
+        return RegistrationResult(robots=robots, activities=activities, events=events)
 
 
 def _items(value: Any) -> list[Mapping[str, Any]]:

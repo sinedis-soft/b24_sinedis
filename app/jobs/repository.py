@@ -103,6 +103,32 @@ class AutomationJobRepository:
             locked_by=None,
         )
 
+    async def schedule_poll(
+        self, job_id: UUID, *, run_at: datetime, payload: dict[str, Any]
+    ) -> bool:
+        """Reschedule a normal field poll without consuming the technical retry budget."""
+        async with self._session.begin():
+            result = await self._session.execute(
+                update(AutomationJob)
+                .where(AutomationJob.id == job_id, AutomationJob.status == "processing")
+                .values(
+                    status="retry",
+                    run_at=run_at,
+                    payload=payload,
+                    last_error=None,
+                    attempts=func.greatest(AutomationJob.attempts - 1, 0),
+                    locked_at=None,
+                    locked_by=None,
+                )
+            )
+        return bool(result.rowcount)
+
+    async def save_processing_result(
+        self, job_id: UUID, *, payload: dict[str, Any], return_values: dict[str, Any]
+    ) -> bool:
+        """Durably checkpoint an application call before subscription delivery."""
+        return await self._transition(job_id, payload=payload, return_values=return_values)
+
     async def mark_failed(self, job_id: UUID, *, error_code: str) -> bool:
         return await self._transition(
             job_id,
