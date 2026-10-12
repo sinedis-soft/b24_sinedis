@@ -71,6 +71,7 @@ async def test_install_endpoint_normalizes_json_and_returns_no_secrets() -> None
         "member_id": "test-member",
         "status": "active",
         "robots": {},
+        "activities": {},
         "events": {},
     }
     assert "test-access-token" not in response.text

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.bitrix.client import BitrixClient
 from app.bitrix.exceptions import BitrixConfigurationError
+from app.bitrix.workflow_fields import ensure_workflow_field_type
 from app.config import Settings, get_settings
 from app.robots.registry import RobotRegistry, activity_registry, robot_registry
 from app.robots.rest_request import REST_REQUEST_ACTIVITY_CODE
@@ -115,6 +116,8 @@ class BitrixRegistrationService:
         return statuses
 
     async def ensure_all(self, client: BitrixClient) -> RegistrationResult:
+        if self._settings.workflow_buttons_enabled:
+            await ensure_workflow_field_type(client, self.handler_url("api/buttons/field"))
         robots = await self.ensure_robots_registered(client)
         activities = await self.ensure_activities_registered(client)
         events = await self.ensure_uninstall_event_registered(client)
