@@ -8,7 +8,12 @@ from app.models import AutomationJob, Base, BitrixPortal
 
 def test_metadata_contains_expected_tables_and_naming_convention() -> None:
     """All tables share deterministic constraint naming rules."""
-    assert set(Base.metadata.tables) == {"bitrix_portals", "automation_jobs"}
+    assert set(Base.metadata.tables) == {
+        "bitrix_portals",
+        "automation_jobs",
+        "workflow_buttons",
+        "workflow_launches",
+    }
     assert set(Base.metadata.naming_convention) >= {"ix", "uq", "ck", "fk", "pk"}
 
 

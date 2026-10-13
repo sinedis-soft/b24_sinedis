@@ -1,0 +1,24 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Настройки запуска процесса</title>
+<style>body{font:14px Arial;color:#243746;margin:20px;max-width:740px}label{display:block;margin:12px 0}input,textarea{padding:7px;border:1px solid #bcc8d2;border-radius:4px;box-sizing:border-box}input:not([type=checkbox]),textarea{width:100%}textarea{height:90px}button{padding:9px 15px;cursor:pointer}table{border-collapse:collapse;width:100%;margin-top:16px}td,th{padding:8px;text-align:left;border-bottom:1px solid #ddd}#message{white-space:pre-wrap}small{color:#526576}</style>
+<button id="back">Вернуться к кнопке</button><h2>Кнопка запуска бизнес-процесса</h2>
+<p>Одна кнопка на пользовательское поле сделки. Настройки доступны администратору.</p>
+<label>Код поля<input id="field" placeholder="UF_CRM_…" maxlength="100"></label>
+<button id="load">Загрузить настройки</button>
+<form id="form" hidden>
+<label>Подпись<input id="label" maxlength="100" required></label>
+<label>Номер шаблона процесса<input id="template_id" type="number" min="1" required></label>
+<label>Параметры процесса (объект JSON)<textarea id="parameters">{}</textarea></label>
+<label>Номера сотрудников через запятую<input id="allowed_user_ids"><small>Пустой список — запуск только администраторами.</small></label>
+<label>Цвет<input id="color" type="color" value="#2563eb"></label>
+<label>Ширина, пикселей<input id="width" type="number" min="80" max="800" value="240"></label>
+<label>Высота, пикселей<input id="height" type="number" min="24" max="80" value="40"></label>
+<label>Пауза между запусками, секунд<input id="cooldown_seconds" type="number" min="10" max="86400" value="30"></label>
+<label><input id="enabled" type="checkbox"> Разрешить запуск</label>
+<label><input id="confirm" type="checkbox" checked> Запрашивать подтверждение</label>
+<label><input id="block_until_released" type="checkbox"> Блокировать следующие запуски до ручной разблокировки администратором</label>
+<p><small>Автоматическое определение завершения процесса в этой версии отсутствует. Пауза защищает от частых нажатий, а не от одновременного выполнения длительных процессов.</small></p>
+<button type="submit">Сохранить</button>
+</form><p id="message" role="status"></p>
+<h3>Последние 50 запусков</h3><button id="journal">Обновить журнал</button><div id="records"></div>
+<script src="https://api.bitrix24.com/api/v1/"></script><script src="settings.js"></script></html>

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     app_port: int = 8010
     app_base_url: str = "http://localhost:8010"
     log_level: str = "INFO"
+    workflow_buttons_enabled: bool = False
     database_url: SecretStr = SecretStr(
         "postgresql+asyncpg://bitrix_app:change_me@localhost:5432/bitrix_automation"
     )

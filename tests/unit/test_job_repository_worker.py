@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
+from sqlalchemy.dialects import postgresql
+
 from app.config import Settings
 from app.jobs.repository import AutomationJobRepository
 from app.jobs.worker import worker_loop
@@ -59,7 +61,7 @@ async def test_claim_sets_lease_and_increments_attempt_once():
     claimed = await AutomationJobRepository(session).claim_due_jobs(
         worker_id="worker-test", limit=5, now=now
     )
-    sql = str(session.statement.compile()).upper()
+    sql = str(session.statement.compile(dialect=postgresql.dialect())).upper()
     assert "FOR UPDATE" in sql and "SKIP LOCKED" in sql
     assert "RUN_AT" in sql and "ATTEMPTS" in sql and "MAX_ATTEMPTS" in sql
     assert claimed == [job]
@@ -90,7 +92,9 @@ class Processor:
 
 
 async def test_worker_once_recovers_claims_and_stops(monkeypatch):
-    job = SimpleNamespace(id=uuid4(), robot_code="sinedis.short_pause.v1", attempts=1)
+    job = SimpleNamespace(
+        id=uuid4(), robot_code="sinedis.short_pause.v1", attempts=1, started_at=None
+    )
     session = Session([job])
     monkeypatch.setattr("app.jobs.worker.get_session_factory", lambda: Factory(session))
     recovery, processor = Recovery(), Processor()

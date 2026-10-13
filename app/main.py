@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.api.health import router as health_router
 from app.api.installation import router as installation_router
 from app.api.robots import router as robots_router
+from app.api.workflow_buttons import router as buttons_router
 from app.config import get_settings
 from app.database import dispose_database_engine
 from app.logging import configure_logging
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(installation_router)
     application.include_router(robots_router)
+    application.include_router(buttons_router)
     return application
 
 
