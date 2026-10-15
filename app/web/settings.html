@@ -1,24 +1,159 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Настройки запуска процесса</title>
-<style>body{font:14px Arial;color:#243746;margin:20px;max-width:740px}label{display:block;margin:12px 0}input,textarea{padding:7px;border:1px solid #bcc8d2;border-radius:4px;box-sizing:border-box}input:not([type=checkbox]),textarea{width:100%}textarea{height:90px}button{padding:9px 15px;cursor:pointer}table{border-collapse:collapse;width:100%;margin-top:16px}td,th{padding:8px;text-align:left;border-bottom:1px solid #ddd}#message{white-space:pre-wrap}small{color:#526576}</style>
-<button id="back">Вернуться к кнопке</button><h2>Кнопка запуска бизнес-процесса</h2>
-<p>Одна кнопка на пользовательское поле сделки. Настройки доступны администратору.</p>
-<label>Код поля<input id="field" placeholder="UF_CRM_…" maxlength="100"></label>
-<button id="load">Загрузить настройки</button>
-<form id="form" hidden>
-<label>Подпись<input id="label" maxlength="100" required></label>
-<label>Номер шаблона процесса<input id="template_id" type="number" min="1" required></label>
-<label>Параметры процесса (объект JSON)<textarea id="parameters">{}</textarea></label>
-<label>Номера сотрудников через запятую<input id="allowed_user_ids"><small>Пустой список — запуск только администраторами.</small></label>
-<label>Цвет<input id="color" type="color" value="#2563eb"></label>
-<label>Ширина, пикселей<input id="width" type="number" min="80" max="800" value="240"></label>
-<label>Высота, пикселей<input id="height" type="number" min="24" max="80" value="40"></label>
-<label>Пауза между запусками, секунд<input id="cooldown_seconds" type="number" min="10" max="86400" value="30"></label>
-<label><input id="enabled" type="checkbox"> Разрешить запуск</label>
-<label><input id="confirm" type="checkbox" checked> Запрашивать подтверждение</label>
-<label><input id="block_until_released" type="checkbox"> Блокировать следующие запуски до ручной разблокировки администратором</label>
-<p><small>Автоматическое определение завершения процесса в этой версии отсутствует. Пауза защищает от частых нажатий, а не от одновременного выполнения длительных процессов.</small></p>
-<button type="submit">Сохранить</button>
-</form><p id="message" role="status"></p>
-<h3>Последние 50 запусков</h3><button id="journal">Обновить журнал</button><div id="records"></div>
-<script src="https://api.bitrix24.com/api/v1/"></script><script src="settings.js"></script></html>
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Настройки кнопки</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="settings-page">
+    <main id="settings-shell" class="settings-shell">
+      <header class="page-header">
+        <button id="back" class="back-button">← Назад</button>
+        <div>
+          <h1>Настройки кнопки</h1>
+          <p>Запуск бизнес-процесса из карточки сделки</p>
+        </div>
+      </header>
+      <section class="card">
+        <div class="field-picker">
+          <label class="control"
+            >Поле сделки<input
+              id="field"
+              class="code-input"
+              placeholder="UF_CRM_…"
+              maxlength="100" /></label
+          ><button id="load">Загрузить</button>
+        </div>
+      </section>
+      <form id="form" hidden>
+        <section class="card">
+          <h2>Действие</h2>
+          <label class="control"
+            >Подпись кнопки<input
+              id="label"
+              maxlength="100"
+              required
+              placeholder="Например, проверить госномер"
+          /></label>
+          <label class="control"
+            >Номер шаблона процесса<input
+              id="template_id"
+              type="number"
+              min="1"
+              required
+              placeholder="983"
+            /><small
+              >Идентификатор шаблона в редакторе бизнес-процессов.</small
+            ></label
+          >
+          <details>
+            <summary>Параметры процесса</summary>
+            <label class="control"
+              >Значения параметров<textarea id="parameters" spellcheck="false">
+{}</textarea
+              ><small
+                >Оставьте {}, если процесс не требует входных параметров.</small
+              ></label
+            >
+          </details>
+        </section>
+        <section class="card">
+          <h2>Внешний вид</h2>
+          <div class="grid three">
+            <label class="control"
+              >Цвет<input id="color" type="color" value="#2563eb"
+            /></label>
+            <label class="control"
+              >Ширина, пкс<input
+                id="width"
+                type="number"
+                min="80"
+                max="800"
+                value="240"
+            /></label>
+            <label class="control"
+              >Высота, пкс<input
+                id="height"
+                type="number"
+                min="24"
+                max="80"
+                value="40"
+            /></label>
+          </div>
+          <p class="preview-label">Предварительный просмотр</p>
+          <div class="preview-box">
+            <button
+              id="preview"
+              class="launch-button"
+              type="button"
+              tabindex="-1"
+            >
+              Запустить бизнес-процесс
+            </button>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Доступ и повторный запуск</h2>
+          <label class="control"
+            >Номера сотрудников<input
+              id="allowed_user_ids"
+              placeholder="Например, 17, 25, 48"
+            /><small
+              >Через запятую. Пустой список — доступ только
+              администраторам.</small
+            ></label
+          >
+          <label class="check"
+            ><input id="enabled" type="checkbox" /><span
+              ><strong>Разрешить запуск</strong
+              ><small
+                >Кнопка доступна указанным сотрудникам и администраторам.</small
+              ></span
+            ></label
+          >
+          <label class="check"
+            ><input id="confirm" type="checkbox" checked /><span
+              >Запрашивать подтверждение перед запуском</span
+            ></label
+          >
+          <label class="control"
+            >Пауза между запусками, секунд<input
+              id="cooldown_seconds"
+              type="number"
+              min="10"
+              max="86400"
+              value="30"
+          /></label>
+          <label class="check"
+            ><input id="block_until_released" type="checkbox" /><span
+              >Блокировать повторный запуск до ручной разблокировки<small
+                >Снять блокировку сможет администратор в журнале.</small
+              ></span
+            ></label
+          >
+          <div class="notice">
+            Пауза защищает от частых нажатий. Завершение процесса автоматически
+            не отслеживается.
+          </div>
+        </section>
+        <div class="form-actions">
+          <button id="save" class="primary" type="submit">
+            Сохранить настройки
+          </button>
+        </div>
+      </form>
+      <p id="message" class="status" role="status" aria-live="polite"></p>
+      <section class="card">
+        <div class="journal-header">
+          <h2>Журнал запусков</h2>
+          <button id="journal">Обновить</button>
+        </div>
+        <div id="records" class="table-scroll"></div>
+      </section>
+    </main>
+    <script src="https://api.bitrix24.com/api/v1/"></script>
+    <script src="ui.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>

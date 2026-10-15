@@ -1,6 +1,42 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Действие со сделкой</title>
-<style>body{font:14px Arial;margin:8px;color:#243746}button{border:0;border-radius:5px;color:white;cursor:pointer;max-width:100%}button:disabled{opacity:.5;cursor:wait}#message{margin:8px 0}a{color:#2563eb}</style>
-<button id="launch" hidden></button><div id="message" role="status">Загрузка…</div>
-<button id="settings" hidden style="background:#526576;height:28px">Настроить кнопку</button>
-<script src="https://api.bitrix24.com/api/v1/"></script><script src="field.js"></script></html>
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Действие со сделкой</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="field-page">
+    <main id="widget">
+      <div class="action-row">
+        <button id="launch" class="launch-button" hidden></button>
+        <button
+          id="settings"
+          class="settings-button"
+          hidden
+          title="Настроить кнопку"
+          aria-label="Настроить кнопку"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path
+              d="m9 3-.6 2.2-2 .9-2.1-.6-2 3.5 1.5 1.6v2.8L2.3 15l2 3.5 2.1-.6 2 .9L9 21h4l.6-2.2 2-.9 2.1.6 2-3.5-1.5-1.6v-2.8L19.7 9l-2-3.5-2.1.6-2-.9L13 3Z"
+            />
+            <circle cx="11" cy="12" r="3" />
+          </svg>
+        </button>
+      </div>
+      <div id="message" class="field-message" role="status" aria-live="polite">
+        Загрузка…
+      </div>
+    </main>
+    <script src="https://api.bitrix24.com/api/v1/"></script>
+    <script src="ui.js"></script>
+    <script src="field.js"></script>
+  </body>
+</html>
