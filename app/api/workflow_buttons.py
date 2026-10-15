@@ -220,9 +220,16 @@ def page(filename: str) -> HTMLResponse:
 
 @router.get("/{asset}.js")
 async def javascript(asset: str) -> Response:
-    if asset not in {"field", "settings"} or not get_settings().workflow_buttons_enabled:
+    if asset not in {"field", "settings", "ui"} or not get_settings().workflow_buttons_enabled:
         raise HTTPException(404)
     return Response((WEB_ROOT / f"{asset}.js").read_text(), media_type="text/javascript")
+
+
+@router.get("/ui.css")
+async def stylesheet() -> Response:
+    if not get_settings().workflow_buttons_enabled:
+        raise HTTPException(404)
+    return Response((WEB_ROOT / "ui.css").read_text(), media_type="text/css")
 
 
 @router.post("/config")
