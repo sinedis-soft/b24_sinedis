@@ -169,11 +169,26 @@ async def validate_field(who: Actor, field_name: str) -> None:
     )
     info = (await who.server.call_portal(who.portal.id, "app.info")).result
     expected = f"rest_{info['ID']}_{USER_TYPE_ID}"
-    if not any(
-        item.get("FIELD_NAME") == field_name and item.get("USER_TYPE_ID") == expected
-        for item in response.result
-    ):
-        raise HTTPException(400, "Поле не принадлежит типу кнопки SINEDIS")
+    fields = response.result
+    if isinstance(fields, list):
+        for item in fields:
+            if not isinstance(item, dict) or item.get("FIELD_NAME") != field_name:
+                continue
+            actual = item.get("USER_TYPE_ID")
+            if actual == expected:
+                return
+            if actual == USER_TYPE_ID:
+                # CRM may return the short code instead of rest_<app_id>_<code>.
+                # Prove ownership through the current app's registry before accepting it.
+                registered = (
+                    await who.server.call_portal(who.portal.id, "userfieldtype.list")
+                ).result
+                if isinstance(registered, list) and any(
+                    isinstance(entry, dict) and entry.get("USER_TYPE_ID") == USER_TYPE_ID
+                    for entry in registered
+                ):
+                    return
+    raise HTTPException(400, "Поле не принадлежит типу кнопки SINEDIS")
 
 
 async def button_for(session: AsyncSession, who: Actor, name: str) -> WorkflowButton | None:

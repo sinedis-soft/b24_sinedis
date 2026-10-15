@@ -311,3 +311,55 @@ async def test_release_checks_portal_boundary_and_inflight_age():
     assert await release(body, admin, session) == {"ok": True}
     assert record.released_by == admin.user_id
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("field_type", ["rest_293_sinedis_bp_button", "sinedis_bp_button"])
+async def test_accepts_crm_full_and_short_field_type_codes(field_type):
+    actor = who(admin=True)
+    actor.server.call_portal.side_effect = [
+        SimpleNamespace(result=[{"FIELD_NAME": "UF_CRM_BUTTON", "USER_TYPE_ID": field_type}]),
+        SimpleNamespace(result={"ID": 293}),
+        SimpleNamespace(result=[{"USER_TYPE_ID": "sinedis_bp_button"}]),
+    ]
+    await validate_field(actor, "UF_CRM_BUTTON")
+    if field_type == "sinedis_bp_button":
+        assert actor.server.call_portal.call_args.args == (actor.portal.id, "userfieldtype.list")
+
+
+@pytest.mark.parametrize("registry", [[], [{"USER_TYPE_ID": "other_type"}], None, {}])
+async def test_short_code_requires_registration_owned_by_current_app(registry):
+    actor = who(admin=True)
+    actor.server.call_portal.side_effect = [
+        SimpleNamespace(
+            result=[{"FIELD_NAME": "UF_CRM_BUTTON", "USER_TYPE_ID": "sinedis_bp_button"}]
+        ),
+        SimpleNamespace(result={"ID": 293}),
+        SimpleNamespace(result=registry),
+    ]
+    with pytest.raises(HTTPException) as error:
+        await validate_field(actor, "UF_CRM_BUTTON")
+    assert error.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        [{"FIELD_NAME": "UF_CRM_BUTTON", "USER_TYPE_ID": "rest_999_sinedis_bp_button"}],
+        [{"FIELD_NAME": "UF_CRM_OTHER", "USER_TYPE_ID": "rest_293_sinedis_bp_button"}],
+        [{"FIELD_NAME": "UF_CRM_BUTTON", "USER_TYPE_ID": "string"}],
+        [],
+        None,
+        {},
+        [None],
+    ],
+)
+async def test_rejects_other_app_other_field_and_malformed_crm_results(fields):
+    actor = who(admin=True)
+    actor.server.call_portal.side_effect = [
+        SimpleNamespace(result=fields),
+        SimpleNamespace(result={"ID": 293}),
+    ]
+    with pytest.raises(HTTPException) as error:
+        await validate_field(actor, "UF_CRM_BUTTON")
+    assert error.value.status_code == 400
+    assert actor.server.call_portal.await_count == 2
